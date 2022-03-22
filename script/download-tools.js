@@ -3,7 +3,7 @@ const path = require('path');
 const os = require('os');
 const fs = require('fs');
 
-const user = 'openblockcc';
+const user = 'aopu-edu';
 const repo = 'openblock-tools';
 const outputdir = path.resolve('./tools');
 const leaveZipped = false;
