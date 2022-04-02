@@ -1,4 +1,4 @@
-name: Publish Npm Package
+name: Publish Git Tag
 
 on:
   push:
@@ -72,14 +72,7 @@ jobs:
         run: |
           echo "RELEASE_VERSION=${{ steps.package-version.outputs.current-version }}-prerelease.$(date +'%Y%m%d%H%M%S')" >> $GITHUB_ENV
 
-      - name: Set package version
-        run: npm --no-git-tag-version version $RELEASE_VERSION
-
       - name: Tag release
         run: |
           git tag $RELEASE_VERSION
           git push https://x-access-token:${{ secrets.GH_TOKEN }}@github.com/$GITHUB_REPOSITORY $RELEASE_VERSION
-
-      - uses: JS-DevTools/npm-publish@v1
-        with:
-          token: ${{ secrets.NPM_TOKEN }}
