@@ -83,13 +83,19 @@ class MicroPython {
         this._sendstd(`Try to enter raw REPL.\n`);
 
         return new Promise((resolve, reject) => {
-            const obmpy = spawn(this._pyPath,
-                [
-                    `-m${OBMPY_MODULE_NAME}`,
-                    `-p${this._peripheralPath}`,
-                    '-d1', // delay 1s to wait for device ready
-                    'ls'
-                ]);
+            const arg = [
+                `-m${OBMPY_MODULE_NAME}`,
+                `-p${this._peripheralPath}`,
+                '-d1', // delay 1s to wait for device ready
+                `-r${this._config.rtsdtr === false ? 'F' : 'T'}`,
+                'ls'
+            ];
+
+            if (this._config.chip === 'k210') {
+                arg.splice(4, 0, '-a1'); // if k210 just send abort command once
+            }
+
+            const obmpy = spawn(this._pyPath, arg);
 
             obmpy.on('exit', outCode => {
                 switch (outCode) {
@@ -104,14 +110,20 @@ class MicroPython {
 
     obmpyPut (file) {
         return new Promise((resolve, reject) => {
-            const obmpy = spawn(this._pyPath,
-                [
-                    `-m${OBMPY_MODULE_NAME}`,
-                    '-d1',
-                    `-p${this._peripheralPath}`,
-                    'put',
-                    file
-                ]);
+            const arg = [
+                `-m${OBMPY_MODULE_NAME}`,
+                '-d1',
+                `-p${this._peripheralPath}`,
+                `-r${this._config.rtsdtr === false ? 'F' : 'T'}`,
+                'put',
+                file
+            ];
+
+            if (this._config.chip === 'k210') {
+                arg.splice(4, 0, '-a1');
+            }
+
+            const obmpy = spawn(this._pyPath, arg);
 
             obmpy.on('exit', outCode => {
                 switch (outCode) {

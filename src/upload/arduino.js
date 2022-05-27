@@ -122,7 +122,6 @@ class Arduino {
     }
 
     async flash (firmwarePath = null) {
-
         const args = [
             'upload',
             '--fqbn', this._config.fqbn,
@@ -130,6 +129,11 @@ class Arduino {
             '--verify',
             `-p${this._peripheralPath}`
         ];
+
+        // for k210 we must specify the programmer used as kflash
+        if (this._config.fqbn.startsWith('Maixduino:k210:')) {
+            args.push('-Pkflash');
+        }
 
         if (firmwarePath) {
             args.push('--input-file', firmwarePath, firmwarePath);
