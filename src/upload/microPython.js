@@ -220,9 +220,14 @@ class MicroPython {
         return new Promise((resolve, reject) => {
             const args = [
                 `-m${KFLASH_MODULE_NAME}`,
-                '-p', this._peripheralPath,
-                '-b', this._config.baud
+                `-p${this._peripheralPath}`,
+                `-b${this._config.baud}`,
+                `-B${this._config.board}`
             ];
+
+            if (this._config.slowMode) {
+                args.push('-S');
+            }
 
             args.push(path.join(this._firmwareDir, this._config.firmware));
 
