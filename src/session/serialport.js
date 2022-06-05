@@ -280,6 +280,10 @@ class SerialportSession extends Session {
         });
     }
 
+    sleep (delay) {
+        return new Promise(resolve => setTimeout(resolve, delay * 1000));
+    }
+
     async upload (params) {
         const {message, config, encoding, library} = params;
         const code = new Buffer.from(message, encoding).toString();
@@ -320,20 +324,19 @@ class SerialportSession extends Session {
             tool = new MicroPython(this.peripheral.path, config, this.userDataPath,
                 this.toolsPath, this.sendstd.bind(this));
             try {
-                const stableDelay = this.peripheralParams.peripheralConfig.config.stableDelay || 0;
-
                 await this.disconnect();
                 await tool.flash(code, library);
 
-                setTimeout(async () => {
-                    await this.connect(this.peripheralParams, true);
-                    await this.updateBaudrate({baudRate: 115200});
-                    this.sendstd(`${ansi.clear}Reset device\n`);
-                    await this.write({message: '04', encoding: 'hex'});
-                    await this.updateBaudrate({baudRate: baudRate});
+                await this.sleep(0.1);
+                await this.connect(this.peripheralParams, true);
+                await this.updateBaudrate({baudRate: 115200});
+                await this.sleep(0.1);
+                this.sendstd(`${ansi.clear}Reset device\n`);
+                await this.write({message: '04', encoding: 'hex'});
+                await this.sleep(0.1);
+                await this.updateBaudrate({baudRate: baudRate});
 
-                    this.sendRemoteRequest('uploadSuccess', null);
-                }, stableDelay);
+                this.sendRemoteRequest('uploadSuccess', null);
             } catch (err) {
                 this.sendRemoteRequest('uploadError', {
                     message: ansi.red + err
