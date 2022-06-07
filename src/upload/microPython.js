@@ -20,6 +20,12 @@ class MicroPython {
 
         this._pyPath = path.join(this._pythonPath, 'python3');
 
+        // If the baud is an object means the value of this parameter is
+        // different under different systems.
+        if (typeof this._config.baud === 'object') {
+            this._config.baud = this._config.baud[os.platform()];
+        }
+
         this._codefilePath = path.join(this._projectPath, 'main.py');
     }
 
