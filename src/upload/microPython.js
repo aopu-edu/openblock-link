@@ -18,11 +18,7 @@ class MicroPython {
         this._firmwareDir = path.join(toolsPath, '../firmwares/microPython');
         this._sendstd = sendstd;
 
-        if (os.platform() === 'darwin') {
-            this._pyPath = path.join(this._pythonPath, 'bin/python');
-        } else {
-            this._pyPath = path.join(this._pythonPath, 'python');
-        }
+        this._pyPath = path.join(this._pythonPath, 'python3');
 
         this._codefilePath = path.join(this._projectPath, 'main.py');
     }
