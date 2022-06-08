@@ -18,7 +18,11 @@ class MicroPython {
         this._firmwareDir = path.join(toolsPath, '../firmwares/microPython');
         this._sendstd = sendstd;
 
-        this._pyPath = path.join(this._pythonPath, 'python3');
+        if (os.platform() === 'darwin') {
+            this._pyPath = path.join(this._pythonPath, 'python3');
+        } else {
+            this._pyPath = path.join(this._pythonPath, 'python');
+        }
 
         // If the baud is an object means the value of this parameter is
         // different under different systems.
