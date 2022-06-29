@@ -155,6 +155,7 @@ class MicroPython {
 
             if (this._config.chip === 'k210') {
                 arg.splice(4, 0, '-a1'); // if k210 just send abort command once
+                // add argument of command restspace, the file directory of k210 is /flash
                 arg.splice(6, 0, '/flash');
             }
 
