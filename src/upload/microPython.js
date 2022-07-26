@@ -8,6 +8,9 @@ const OBMPY_MODULE_NAME = 'obmpy';
 const ESPTOOL_MODULE_NAME = 'esptool';
 const KFLASH_MODULE_NAME = 'kflash';
 
+const K210_RESERVED_SPACE = 100; // 100 bytes
+const ESP_RESERVED_BLOCKS = 1; // 1 blocks
+
 class MicroPython {
     constructor (peripheralPath, config, userDataPath, toolsPath, sendstd) {
         this._peripheralPath = peripheralPath;
@@ -34,7 +37,8 @@ class MicroPython {
     }
 
     async flash (code, library = []) {
-        const fileToPut = [];
+        const filesToPut = [];
+        let existedFiles = [];
 
         if (!fs.existsSync(this._projectPath)) {
             fs.mkdirSync(this._projectPath, {recursive: true});
@@ -46,21 +50,56 @@ class MicroPython {
             return Promise.reject(err);
         }
 
-        fileToPut.push(this._codefilePath);
+        filesToPut.push(this._codefilePath);
 
         library.forEach(lib => {
             if (fs.existsSync(lib)) {
                 const libraries = fs.readdirSync(lib);
                 libraries.forEach(file => {
-                    fileToPut.push(path.join(lib, file));
+                    filesToPut.push(path.join(lib, file));
                 });
             }
         });
 
         // If we can not entry raw REPL, we should flash micro python firmware first.
         try {
-            await this.checkReplSupport();
+            let rootPath = '/';
+            existedFiles = await this.checkFileList();
+
+            // If the root path return a directory named flash or sd means that
+            // this device supports multiple storage media. If no sdcard we shuold
+            // use /flash as root path, otherwise we should use /sd as root path.
+            if (existedFiles.includes('flash')) {
+                rootPath = '/flash';
+
+                // The priority of sd card is higher than flash.
+                if (existedFiles.includes('sd')) {
+                    rootPath = '/sd';
+                }
+                // Reread the file list in the root path
+                existedFiles = await this.checkFileList(rootPath);
+            }
+            const fsInfo = await this.checkFreeSpace(rootPath);
+
+            if (this.shouldClearFiles(filesToPut, existedFiles, fsInfo)) {
+                if (rootPath === '/flash' || rootPath === '/') {
+                    this._sendstd(`${ansi.yellow_dark}The free space of the board is not enough.\n`);
+                    this._sendstd(`${ansi.clear}Try to reflash micropython firmware to ` +
+                    `clear the file system of the board.\n`);
+                    try {
+                        await this.flashFirmware();
+                    } catch (e) {
+                        return Promise.reject(e);
+                    }
+                } else {
+                    return Promise.reject('${ansi.red}The free space of the sd card is not enough. ' +
+                        'You need to clear it manually\n');
+                }
+            }
         } catch (err) {
+            if (err) {
+                console.error('Flash error:', err);
+            }
             this._sendstd(`${ansi.yellow_dark}Could not enter raw REPL.\n`);
             this._sendstd(`${ansi.clear}Try to flash micro python firmware to fix.\n`);
 
@@ -73,20 +112,54 @@ class MicroPython {
 
         this._sendstd('Writing files...\n');
 
-        for (const file of fileToPut) {
-            try {
-                await this.obmpyPut(file);
-            } catch (err) {
-                return Promise.reject(err);
+        for (const file of filesToPut) {
+            const fileName = file.substring(file.lastIndexOf('\\') + 1);
+            const pushed = existedFiles.find(item => fileName === item);
+            if (!pushed || fileName === 'main.py') {
+                try {
+                    await this.obmpyPut(file);
+                } catch (err) {
+                    return Promise.reject(err);
+                }
+            } else {
+                this._sendstd(`${file} already exists, skip\n`);
             }
+
         }
 
         this._sendstd(`${ansi.green_dark}Success\n`);
         return Promise.resolve();
     }
 
-    checkReplSupport () {
-        this._sendstd(`Try to enter raw REPL.\n`);
+    shouldClearFiles (fileToPut, existedFiles, fsInfo) {
+        let totalSize = 0;
+        let totalBlock = 0;
+
+        fileToPut.forEach(file => {
+            const fileName = path.basename(file);
+            const exsisted = existedFiles.find(item => fileName === item);
+            if (!exsisted || fileName === 'main.py') {
+                const fileSize = fs.statSync(file).size;
+                if (this._config.chip === 'k210') {
+                    // For k210, the files are densely stored
+                    totalSize += fileSize;
+                } else {
+                    // For esp32/8266, the files are stored by block
+                    totalBlock += Math.ceil(fileSize / fsInfo.bsize);
+                }
+            }
+        });
+
+        if (this._config.chip === 'k210') {
+            // When the free space of k210 is less than x bytes, clear all files
+            return ((this._bfree * this._bsize) - totalSize) < K210_RESERVED_SPACE;
+        }
+        // When the free space of esp32/8266 is less than x blocks, clear all files
+        return (this._bfree - totalBlock) < ESP_RESERVED_BLOCKS;
+    }
+
+    checkFreeSpace (_path = '/') {
+        this._sendstd(`Check the size of available free space on path "${_path}".\n`);
 
         return new Promise((resolve, reject) => {
             const arg = [
@@ -94,7 +167,8 @@ class MicroPython {
                 `-p${this._peripheralPath}`,
                 '-d1', // delay 1s to wait for device ready
                 `-r${this._config.rtsdtr === false ? 'F' : 'T'}`,
-                'ls'
+                'fsi',
+                `${_path}`
             ];
 
             if (this._config.chip === 'k210') {
@@ -103,10 +177,57 @@ class MicroPython {
 
             const obmpy = spawn(this._pyPath, arg);
 
+            let bsize = 0; // one block size of the board
+            let bfree = 0; // block free of the board
+
+            obmpy.stdout.on('data', buf => {
+                // It seems that avrdude didn't use stdout.
+                const data = JSON.parse(buf.toString().trim()
+                    .replace(new RegExp('\'', 'g'), '"'));
+                bsize = data.bsize;
+                bfree = data.bfree;
+            });
             obmpy.on('exit', outCode => {
                 switch (outCode) {
                 case 0:
-                    return resolve();
+                    return resolve({bsize, bfree});
+                default:
+                    return reject();
+                }
+            });
+        });
+    }
+
+    checkFileList (_path = '/') {
+        this._sendstd(`Read the exited files on path "${_path}".\n`);
+
+        return new Promise((resolve, reject) => {
+            const arg = [
+                `-m${OBMPY_MODULE_NAME}`,
+                `-p${this._peripheralPath}`,
+                '-d1', // delay 1s to wait for device ready
+                `-r${this._config.rtsdtr === false ? 'F' : 'T'}`,
+                'ls',
+                `${_path}`
+            ];
+
+            if (this._config.chip === 'k210') {
+                arg.splice(4, 0, '-a1'); // if k210 just send abort command once
+            }
+
+            const obmpy = spawn(this._pyPath, arg);
+
+            let existedFiles = [];
+            obmpy.stdout.on('data', buf => {
+                let data = buf.toString().trim();
+                data = data.replace(new RegExp('[/\\r]', 'g'), '');
+                existedFiles = data.split('\n');
+            });
+
+            obmpy.on('exit', outCode => {
+                switch (outCode) {
+                case 0:
+                    return resolve(existedFiles);
                 default:
                     return reject();
                 }
