@@ -217,11 +217,15 @@ class MicroPython {
 
             const obmpy = spawn(this._pyPath, arg);
 
-            let existedFiles = [];
+            const existedFiles = [];
             obmpy.stdout.on('data', buf => {
                 let data = buf.toString().trim();
-                data = data.replace(new RegExp('[/\\r]', 'g'), '');
-                existedFiles = data.split('\n');
+                data = data.replace(new RegExp('[\\r]', 'g'), '');
+                const files = data.split('\n');
+                for (let file of files) {
+                    file = file.substring(file.lastIndexOf('/') + 1);
+                    existedFiles.push(file);
+                }
             });
 
             obmpy.on('exit', outCode => {
