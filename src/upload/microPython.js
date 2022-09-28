@@ -113,7 +113,7 @@ class MicroPython {
         this._sendstd('Writing files...\n');
 
         for (const file of filesToPut) {
-            const fileName = file.substring(file.lastIndexOf('\\') + 1);
+            const fileName = path.basename(file);
             const pushed = existedFiles.find(item => fileName === item);
             if (!pushed || fileName === 'main.py') {
                 try {
