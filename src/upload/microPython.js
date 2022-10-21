@@ -10,6 +10,7 @@ const KFLASH_MODULE_NAME = 'kflash';
 
 const K210_RESERVED_SPACE = 100; // 100 bytes
 const ESP_RESERVED_BLOCKS = 1; // 1 blocks
+const CHECK_ABORT_STATE_TIME = 200;
 
 class MicroPython {
     constructor (peripheralPath, config, userDataPath, toolsPath, sendstd) {
@@ -20,6 +21,8 @@ class MicroPython {
         this._pythonPath = path.join(toolsPath, 'Python');
         this._firmwareDir = path.join(toolsPath, '../firmwares/microPython');
         this._sendstd = sendstd;
+
+        this._beAbort = false;
 
         if (os.platform() === 'darwin') {
             this._pyPath = path.join(this._pythonPath, 'python3');
@@ -53,6 +56,9 @@ class MicroPython {
         filesToPut.push(this._codefilePath);
 
         library.forEach(lib => {
+            if (this._beAbort === true) {
+                return Promise.reject('Aborted');
+            }
             if (fs.existsSync(lib)) {
                 const libraries = fs.readdirSync(lib);
                 libraries.forEach(file => {
@@ -82,6 +88,9 @@ class MicroPython {
             const fsInfo = await this.checkFreeSpace(rootPath);
 
             if (this.shouldClearFiles(filesToPut, existedFiles, fsInfo)) {
+                if (this._beAbort === true) {
+                    return Promise.reject('Aborted');
+                }
                 if (rootPath === '/flash' || rootPath === '/') {
                     this._sendstd(`${ansi.yellow_dark}The free space of the board is not enough.\n`);
                     this._sendstd(`${ansi.clear}Try to reflash micropython firmware to ` +
@@ -99,6 +108,9 @@ class MicroPython {
         } catch (err) {
             if (err) {
                 console.error('Flash error:', err);
+                if (err === 'Aborted') {
+                    return Promise.reject(err);
+                }
             }
             this._sendstd(`${ansi.yellow_dark}Could not enter raw REPL.\n`);
             this._sendstd(`${ansi.clear}Try to flash micro python firmware to fix.\n`);
@@ -187,7 +199,16 @@ class MicroPython {
                 bsize = data.bsize;
                 bfree = data.bfree;
             });
+
+            const listenAbortSignal = setInterval(() => {
+                if (this._beAbort) {
+                    obmpy.kill();
+                    return reject('Aborted');
+                }
+            }, CHECK_ABORT_STATE_TIME);
+
             obmpy.on('exit', outCode => {
+                clearInterval(listenAbortSignal);
                 switch (outCode) {
                 case 0:
                     return resolve({bsize, bfree});
@@ -228,7 +249,15 @@ class MicroPython {
                 }
             });
 
+            const listenAbortSignal = setInterval(() => {
+                if (this._beAbort) {
+                    obmpy.kill();
+                    return reject('Aborted');
+                }
+            }, CHECK_ABORT_STATE_TIME);
+
             obmpy.on('exit', outCode => {
+                clearInterval(listenAbortSignal);
                 switch (outCode) {
                 case 0:
                     return resolve(existedFiles);
@@ -256,7 +285,16 @@ class MicroPython {
 
             const obmpy = spawn(this._pyPath, arg);
 
+            const listenAbortSignal = setInterval(() => {
+                if (this._beAbort) {
+                    obmpy.kill();
+                    return reject('Aborted');
+                }
+            }, CHECK_ABORT_STATE_TIME);
+
+
             obmpy.on('exit', outCode => {
+                clearInterval(listenAbortSignal);
                 switch (outCode) {
                 case 0:
                     this._sendstd(`${file} write finish\n`);
@@ -291,7 +329,15 @@ class MicroPython {
                 this._sendstd(buf.toString());
             });
 
+            const listenAbortSignal = setInterval(() => {
+                if (this._beAbort) {
+                    esptools.kill();
+                    return reject('Aborted');
+                }
+            }, CHECK_ABORT_STATE_TIME);
+
             esptools.on('exit', outCode => {
+                clearInterval(listenAbortSignal);
                 switch (outCode) {
                 case 0:
                     return resolve();
@@ -368,7 +414,15 @@ class MicroPython {
                 this._sendstd(buf.toString());
             });
 
+            const listenAbortSignal = setInterval(() => {
+                if (this._beAbort) {
+                    kflash.kill();
+                    return reject('Aborted');
+                }
+            }, CHECK_ABORT_STATE_TIME);
+
             kflash.on('exit', outCode => {
+                clearInterval(listenAbortSignal);
                 switch (outCode) {
                 case 0:
                     return resolve();
@@ -377,6 +431,10 @@ class MicroPython {
                 }
             });
         });
+    }
+
+    abortUpload () {
+        this._beAbort = true;
     }
 }
 

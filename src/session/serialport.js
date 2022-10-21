@@ -23,6 +23,8 @@ class SerialportSession extends Session {
         this.peripheralsScanorTimer = null;
         this.isRead = false;
         this.isInDisconnect = false;
+
+        this.tool = null;
     }
 
     async didReceiveCall (method, params, completion) {
@@ -54,6 +56,9 @@ class SerialportSession extends Session {
             break;
         case 'uploadFirmware':
             completion(await this.uploadFirmware(params), null);
+            break;
+        case 'abort':
+            completion(await this.abortUpload(), null);
             break;
         case 'getServices':
             completion((this.services || []).map(service => service.uuid), null);
@@ -276,6 +281,8 @@ class SerialportSession extends Session {
                     this.isInDisconnect = false;
                     return reject(err);
                 }
+            } else {
+                return resolve();
             }
         });
     }
@@ -287,31 +294,31 @@ class SerialportSession extends Session {
     async upload (params) {
         const {message, config, encoding, library} = params;
         const code = new Buffer.from(message, encoding).toString();
-        let tool;
 
         const {baudRate} = this.peripheralParams.peripheralConfig.config;
 
         switch (config.type) {
         case 'arduino':
-            tool = new Arduino(this.peripheral.path, config, this.userDataPath,
+            this.tool = new Arduino(this.peripheral.path, config, this.userDataPath,
                 this.toolsPath, this.sendstd.bind(this));
 
             try {
-                const exitCode = await tool.build(code, library);
+                const exitCode = await this.tool.build(code, library);
                 if (exitCode === 'Success') {
                     try {
                         this.sendstd(`${ansi.clear}Disconnect serial port\n`);
                         await this.disconnect();
                         this.sendstd(`${ansi.clear}Disconnected successfully, flash program starting...\n`);
-                        await tool.flash();
+                        await this.tool.flash();
                         await this.connect(this.peripheralParams, true);
                         this.sendRemoteRequest('uploadSuccess', null);
                     } catch (err) {
                         this.sendRemoteRequest('uploadError', {
                             message: ansi.red + err.message
                         });
-                        // if error in flash step. It is considered that the device has been removed.
-                        this.sendRemoteRequest('peripheralUnplug', null);
+                        if (err.message !== 'Aborted') {
+                            this.sendRemoteRequest('peripheralUnplug', null);
+                        }
                     }
                 }
             } catch (err) {
@@ -321,12 +328,11 @@ class SerialportSession extends Session {
             }
             break;
         case 'microPython':
-            tool = new MicroPython(this.peripheral.path, config, this.userDataPath,
+            this.tool = new MicroPython(this.peripheral.path, config, this.userDataPath,
                 this.toolsPath, this.sendstd.bind(this));
             try {
                 await this.disconnect();
-                await tool.flash(code, library);
-
+                await this.tool.flash(code, library);
                 await this.sleep(0.1);
                 await this.connect(this.peripheralParams, true);
                 await this.updateBaudrate({baudRate: 115200});
@@ -341,15 +347,17 @@ class SerialportSession extends Session {
                 this.sendRemoteRequest('uploadError', {
                     message: ansi.red + err
                 });
-                this.sendRemoteRequest('peripheralUnplug', null);
+                if (err !== 'Aborted') {
+                    this.sendRemoteRequest('peripheralUnplug', null);
+                }
             }
             break;
         case 'microbit':
-            tool = new Microbit(this.peripheral.path, config, this.userDataPath,
+            this.tool = new Microbit(this.peripheral.path, config, this.userDataPath,
                 this.toolsPath, this.sendstd.bind(this));
             try {
                 await this.disconnect();
-                await tool.flash(code, library);
+                await this.tool.flash(code, library);
                 await this.connect(this.peripheralParams, true);
                 await this.updateBaudrate({baudRate: 115200});
                 this.sendstd(`${ansi.clear}Reset device\n`);
@@ -361,24 +369,26 @@ class SerialportSession extends Session {
                 this.sendRemoteRequest('uploadError', {
                     message: ansi.red + err
                 });
-                this.sendRemoteRequest('peripheralUnplug', null);
+                if (err.message !== 'Aborted') {
+                    this.sendRemoteRequest('peripheralUnplug', null);
+                }
             }
             break;
         }
+
+        this.tool = null;
     }
 
     async uploadFirmware (params) {
-        let tool;
-
         switch (params.type) {
         case 'arduino':
-            tool = new Arduino(this.peripheral.path, params, this.userDataPath,
+            this.tool = new Arduino(this.peripheral.path, params, this.userDataPath,
                 this.toolsPath, this.sendstd.bind(this));
             try {
                 this.sendstd(`${ansi.clear}Disconnect serial port\n`);
                 await this.disconnect();
                 this.sendstd(`${ansi.clear}Disconnected successfully, flash program starting...\n`);
-                await tool.flashRealtimeFirmware();
+                await this.tool.flashRealtimeFirmware();
                 await this.connect(this.peripheralParams, true);
                 this.sendRemoteRequest('uploadSuccess', null);
             } catch (err) {
@@ -387,6 +397,14 @@ class SerialportSession extends Session {
                 });
             }
             break;
+        }
+        
+        this.tool = null;
+    }
+
+    async abortUpload () {
+        if (this.tool !== null) {
+            this.tool.abortUpload();
         }
     }
 

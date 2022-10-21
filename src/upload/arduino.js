@@ -10,6 +10,7 @@ const AVRDUDE_STDOUT_GREEN_END = /%/g;
 const AVRDUDE_STDOUT_WHITE = /avrdude done/g;
 const AVRDUDE_STDOUT_RED_START = /can't open device|programmer is not responding/g;
 const AVRDUDE_STDERR_RED_IGNORE = /Executable segment sizes/g;
+const CHECK_ABORT_STATE_TIME = 200;
 
 class Arduino {
     constructor (peripheralPath, config, userDataPath, toolsPath, sendstd) {
@@ -24,6 +25,8 @@ class Arduino {
 
         this._codefilePath = path.join(this._projectfilePath, 'project.ino');
         this._buildPath = path.join(this._projectfilePath, 'build');
+
+        this._beAbort = false;
 
         this.initArduinoCli();
 
@@ -104,7 +107,15 @@ class Arduino {
                 this._sendstd(ansiColor + data);
             });
 
+            const listenAbortSignal = setInterval(() => {
+                if (this._beAbort) {
+                    arduinoBuilder.kill();
+                    return reject(new Error('Aborted'));
+                }
+            }, CHECK_ABORT_STATE_TIME);
+
             arduinoBuilder.on('exit', outCode => {
+                clearInterval(listenAbortSignal);
                 this._sendstd(`${ansi.clear}\r\n`); // End ansi color setting
                 switch (outCode) {
                 case 0:
@@ -177,12 +188,21 @@ class Arduino {
                 this._sendstd(data);
             });
 
+            const listenAbortSignal = setInterval(() => {
+                if (this._beAbort) {
+                    avrdude.kill();
+                    setTimeout(() => reject(new Error('Aborted')),
+                        CHECK_ABORT_STATE_TIME * 5);
+                }
+            }, CHECK_ABORT_STATE_TIME);
+
             avrdude.on('exit', code => {
+                clearInterval(listenAbortSignal);
                 switch (code) {
                 case 0:
                     if (this._config.fqbn === 'arduino:avr:leonardo' ||
-                            this._config.fqbn === 'SparkFun:avr:makeymakey') {
-                        // Waiting for leonardo usb rerecognize.
+                        this._config.fqbn === 'SparkFun:avr:makeymakey') {
+                        // Waiting for usb rerecognize.
                         const wait = ms => new Promise(relv => setTimeout(relv, ms));
                         wait(1000).then(() => resolve('Success'));
                     } else {
@@ -199,6 +219,10 @@ class Arduino {
     flashRealtimeFirmware () {
         const firmwarePath = path.join(this._arduinoPath, '../../firmwares/arduino', this._config.firmware);
         return this.flash(firmwarePath);
+    }
+
+    abortUpload () {
+        this._beAbort = true;
     }
 }
 

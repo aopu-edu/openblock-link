@@ -8,6 +8,7 @@ const FLASH_TIME = 25 * 1000; // 20s
 
 const UFLASH_MODULE_NAME = 'uflash';
 const MICROFS_MODULE_NAME = 'microfs';
+const CHECK_ABORT_STATE_TIME = 200;
 
 class Microbit {
     constructor (peripheralPath, config, userDataPath, toolsPath, sendstd) {
@@ -17,6 +18,8 @@ class Microbit {
         this._projectPath = path.join(userDataPath, 'microbit/project');
         this._pythonPath = path.join(toolsPath, 'Python');
         this._sendstd = sendstd;
+
+        this._beAbort = false;
 
         if (os.platform() === 'darwin') {
             this._pyPath = path.join(this._pythonPath, 'python3');
@@ -61,6 +64,9 @@ class Microbit {
         this._sendstd('Writing files...\n');
 
         for (const file of fileToPut) {
+            if (this._beAbort === true) {
+                return Promise.reject('Aborted');
+            }
             const ufsPutExitCode = await this.ufsPut(file);
             if (ufsPutExitCode !== 'Success') {
                 return Promise.reject(ufsPutExitCode);
@@ -83,7 +89,17 @@ class Microbit {
                 }
             });
 
-            ufs.on('exit', () => resolve('Success'));
+            const listenAbortSignal = setInterval(() => {
+                if (this._beAbort) {
+                    ufs.kill();
+                    return resolve('Aborted');
+                }
+            }, CHECK_ABORT_STATE_TIME);
+
+            ufs.on('exit', () => {
+                clearInterval(listenAbortSignal);
+                resolve('Success');
+            });
         });
     }
 
@@ -136,7 +152,15 @@ class Microbit {
                 this._sendstd(ansi.red + buf.toString());
             });
 
+            const listenAbortSignal = setInterval(() => {
+                if (this._beAbort) {
+                    uflash.kill();
+                    return reject('Aborted');
+                }
+            }, CHECK_ABORT_STATE_TIME);
+
             uflash.on('exit', outCode => {
+                clearInterval(listenAbortSignal);
                 switch (outCode) {
                 case 0:
                     finish();
@@ -146,6 +170,10 @@ class Microbit {
                 }
             });
         });
+    }
+
+    abortUpload () {
+        this._beAbort = true;
     }
 }
 
