@@ -227,6 +227,7 @@ class SerialportSession extends Session {
                     });
                 });
             }
+            return resolve();
         });
     }
 
