@@ -17,24 +17,29 @@ class Arduino {
         this._peripheralPath = peripheralPath;
         this._config = config;
         this._userDataPath = userDataPath;
-        this._projectfilePath = path.join(userDataPath, 'arduino/project');
         this._arduinoPath = path.join(toolsPath, 'Arduino');
         this._sendstd = sendstd;
-
-        this._arduinoCliPath = path.join(this._arduinoPath, 'arduino-cli');
-
-        this._codefilePath = path.join(this._projectfilePath, 'project.ino');
-        this._buildPath = path.join(this._projectfilePath, 'build');
-
-        this._beAbort = false;
-
-        this.initArduinoCli();
 
         // If the fqbn is an object means the value of this parameter is
         // different under different systems.
         if (typeof this._config.fqbn === 'object') {
             this._config.fqbn = this._config.fqbn[os.platform()];
         }
+
+        const projectPathName = `${this._config.fqbn.replace(/:/g, '_')}_project`.split(/_/).splice(0, 3)
+            .join('_');
+        this._projectfilePath = path.join(userDataPath, 'arduino', projectPathName);
+
+        this._arduinoCliPath = path.join(this._arduinoPath, 'arduino-cli');
+
+        this._codeFolderPath = path.join(this._projectfilePath, 'code');
+        this._codefilePath = path.join(this._codeFolderPath, 'code.ino');
+        this._buildPath = path.join(this._projectfilePath, 'build');
+        this._buildCachePath = path.join(this._projectfilePath, 'buildCache');
+        
+        this._beAbort = false;
+
+        this.initArduinoCli();
     }
 
     initArduinoCli () {
@@ -57,8 +62,8 @@ class Arduino {
 
     build (code, library = []) {
         return new Promise((resolve, reject) => {
-            if (!fs.existsSync(this._projectfilePath)) {
-                fs.mkdirSync(this._projectfilePath, {recursive: true});
+            if (!fs.existsSync(this._codeFolderPath)) {
+                fs.mkdirSync(this._codeFolderPath, {recursive: true});
             }
 
             try {
@@ -73,7 +78,9 @@ class Arduino {
                 '--libraries', path.join(this._arduinoPath, 'libraries'),
                 '--warnings=none',
                 '--verbose',
-                this._projectfilePath
+                '--build-path', this._buildPath,
+                '--build-cache-path', this._buildCachePath,
+                this._codeFolderPath
             ];
 
             // if extensions library to not empty
@@ -156,7 +163,7 @@ class Arduino {
         if (firmwarePath) {
             args.push('--input-file', firmwarePath, firmwarePath);
         } else {
-            args.push(this._projectfilePath);
+            args.push('--input-dir', this._buildPath);
         }
 
         return new Promise((resolve, reject) => {
@@ -201,10 +208,16 @@ class Arduino {
                 switch (code) {
                 case 0:
                     if (this._config.fqbn === 'arduino:avr:leonardo' ||
-                        this._config.fqbn === 'SparkFun:avr:makeymakey') {
+                        this._config.fqbn === 'SparkFun:avr:makeymakey' ||
+                        this._config.fqbn.indexOf('rp2040:rp2040') !== -1) {
                         // Waiting for usb rerecognize.
                         const wait = ms => new Promise(relv => setTimeout(relv, ms));
-                        wait(1000).then(() => resolve('Success'));
+                        // Darwin and linux will take more time to rerecognize device.
+                        if (os.platform() === 'darwin' || os.platform() === 'linux') {
+                            wait(3000).then(() => resolve('Success'));
+                        } else {
+                            wait(1000).then(() => resolve('Success'));
+                        }
                     } else {
                         return resolve('Success');
                     }
