@@ -85,26 +85,26 @@ class MicroPython {
                 // Reread the file list in the root path
                 existedFiles = await this.checkFileList(rootPath);
             }
-            const fsInfo = await this.checkFreeSpace(rootPath);
+            // const fsInfo = await this.checkFreeSpace(rootPath);
 
-            if (this.shouldClearFiles(filesToPut, existedFiles, fsInfo)) {
-                if (this._beAbort === true) {
-                    return Promise.reject('Aborted');
-                }
-                if (rootPath === '/flash' || rootPath === '/') {
-                    this._sendstd(`${ansi.yellow_dark}The free space of the board is not enough.\n`);
-                    this._sendstd(`${ansi.clear}Try to reflash micropython firmware to ` +
-                    `clear the file system of the board.\n`);
-                    try {
-                        await this.flashFirmware();
-                    } catch (e) {
-                        return Promise.reject(e);
-                    }
-                } else {
-                    return Promise.reject('${ansi.red}The free space of the sd card is not enough. ' +
-                        'You need to clear it manually\n');
-                }
-            }
+            // if (this.shouldClearFiles(filesToPut, existedFiles, fsInfo)) {
+            //     if (this._beAbort === true) {
+            //         return Promise.reject('Aborted');
+            //     }
+            //     if (rootPath === '/flash' || rootPath === '/') {
+            //         this._sendstd(`${ansi.yellow_dark}The free space of the board is not enough.\n`);
+            //         this._sendstd(`${ansi.clear}Try to reflash micropython firmware to ` +
+            //         `clear the file system of the board.\n`);
+            //         try {
+            //             await this.flashFirmware();
+            //         } catch (e) {
+            //             return Promise.reject(e);
+            //         }
+            //     } else {
+            //         return Promise.reject('${ansi.red}The free space of the sd card is not enough. ' +
+            //             'You need to clear it manually\n');
+            //     }
+            // }
         } catch (err) {
             if (err) {
                 console.error('Flash error:', err);
@@ -113,13 +113,14 @@ class MicroPython {
                 }
             }
             this._sendstd(`${ansi.yellow_dark}Could not enter raw REPL.\n`);
-            this._sendstd(`${ansi.clear}Try to flash micro python firmware to fix.\n`);
+            this._sendstd(`${ansi.clear}Please retry or try to flash microPython firmware to fix.\n`);
 
-            try {
-                await this.flashFirmware();
-            } catch (e) {
-                return Promise.reject(e);
-            }
+            return Promise.reject('Could not enter raw REPL.');
+            // try {
+            //     await this.flashFirmware();
+            // } catch (e) {
+            //     return Promise.reject(e);
+            // }
         }
 
         this._sendstd('Writing files...\n');
