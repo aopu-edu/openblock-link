@@ -337,11 +337,11 @@ class SerialportSession extends Session {
             }
             break;
         case 'microPython':
-            tool = new MicroPython(this.peripheral.path, config, this.userDataPath,
-                this.toolsPath, this.sendstd.bind(this));
+            this.tool = new MicroPython(this.peripheral.path, config, this.userDataPath,
+                this.toolsPath, this.sendstd.bind(this), this.sendRemoteRequest.bind(this));
             try {
                 await this.disconnect();
-                await tool.flash(code, library);
+                const exitCode = await this.tool.flash(code, library);
 
                 await this.sleep(0.1);
                 await this.connect(this.peripheralParams, true);
@@ -352,7 +352,7 @@ class SerialportSession extends Session {
                 await this.sleep(0.1);
                 await this.updateBaudrate({baudRate: baudRate});
 
-                this.sendRemoteRequest('uploadSuccess', null);
+                this.sendRemoteRequest('uploadSuccess', {aborted: exitCode === 'Aborted'});
             } catch (err) {
                 this.sendRemoteRequest('uploadError', {
                     message: ansi.red + err
