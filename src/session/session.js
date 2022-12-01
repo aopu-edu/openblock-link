@@ -114,7 +114,7 @@ class Session {
             jsonrpc: '2.0',
             method
         };
-        if (params) {
+        if (typeof params !== 'undefined') {
             request.params = params;
         }
         if (completion) {
@@ -123,7 +123,9 @@ class Session {
             this._completionHandlers[requestId] = completion;
         }
         try {
-            this._socket.send(JSON.stringify(request));
+            if (this._socket) {
+                this._socket.send(JSON.stringify(request));
+            }
         } catch (err) {
             console.log(`Error serializing or sending request: ${err}`);
             console.log(`Request was: ${request}`);
