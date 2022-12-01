@@ -403,6 +403,23 @@ class SerialportSession extends Session {
                 });
             }
             break;
+        case 'microPython':
+            this.tool = new MicroPython(this.peripheral.path, params, this.userDataPath,
+                this.toolsPath, this.sendstd.bind(this), this.sendRemoteRequest.bind(this));
+            try {
+                this.sendstd(`${ansi.clear}Disconnect serial port\n`);
+                await this.disconnect();
+                this.sendstd(`${ansi.clear}Disconnected successfully, flash program starting...\n`);
+                await this.tool.flashFirmware();
+                await this.sleep(0.1);
+                await this.connect(this.peripheralParams, true);
+                this.sendRemoteRequest('uploadSuccess', null);
+            } catch (err) {
+                this.sendRemoteRequest('uploadError', {
+                    message: ansi.red + err.message
+                });
+            }
+            break;
         }
 
         this.tool = null;
