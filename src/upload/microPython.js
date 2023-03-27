@@ -12,7 +12,7 @@ const K210_RESERVED_SPACE = 100; // 100 bytes
 const ESP_RESERVED_BLOCKS = 1; // 1 blocks
 
 class MicroPython {
-    constructor (peripheralPath, config, userDataPath, toolsPath, sendstd, sendRemoteRequest) {
+    constructor (peripheralPath, config, userDataPath, toolsPath, sendstd) {
         this._peripheralPath = peripheralPath;
         this._config = config;
         this._userDataPath = userDataPath;
@@ -20,9 +20,6 @@ class MicroPython {
         this._pythonPath = path.join(toolsPath, 'Python');
         this._firmwareDir = path.join(toolsPath, '../firmwares/microPython');
         this._sendstd = sendstd;
-        this._sendRemoteRequest = sendRemoteRequest;
-
-        this._abort = false;
 
         if (os.platform() === 'darwin') {
             this._pyPath = path.join(this._pythonPath, 'python3');
@@ -39,13 +36,7 @@ class MicroPython {
         this._codefilePath = path.join(this._projectPath, 'main.py');
     }
 
-    abortUpload () {
-        this._abort = true;
-    }
-
     async flash (code, library = []) {
-        this._sendRemoteRequest('setUploadAbortEnabled', true);
-
         const filesToPut = [];
         let existedFiles = [];
 
@@ -75,10 +66,6 @@ class MicroPython {
             let rootPath = '/';
             existedFiles = await this.checkFileList();
 
-            if (this._abort === true) {
-                return Promise.resolve('Aborted');
-            }
-
             // If the root path return a directory named flash or sd means that
             // this device supports multiple storage media. If no sdcard we shuold
             // use /flash as root path, otherwise we should use /sd as root path.
@@ -93,10 +80,6 @@ class MicroPython {
                 existedFiles = await this.checkFileList(rootPath);
             }
             const fsInfo = await this.checkFreeSpace(rootPath);
-
-            if (this._abort === true) {
-                return Promise.resolve('Aborted');
-            }
 
             if (this.shouldClearFiles(filesToPut, existedFiles, fsInfo)) {
                 if (rootPath === '/flash' || rootPath === '/') {
@@ -114,10 +97,6 @@ class MicroPython {
                 }
             }
         } catch (err) {
-            if (this._abort === true) {
-                return Promise.resolve('Aborted');
-            }
-
             if (err) {
                 console.error('Flash error:', err);
             }
@@ -130,15 +109,10 @@ class MicroPython {
                 return Promise.reject(e);
             }
         }
-        this._sendRemoteRequest('setUploadAbortEnabled', true);
 
         this._sendstd('Writing files...\n');
 
         for (const file of filesToPut) {
-            if (this._abort === true) {
-                return Promise.resolve('Aborted');
-            }
-
             const fileName = path.basename(file);
             const pushed = existedFiles.find(item => fileName === item);
             if (!pushed || fileName === 'main.py') {
@@ -281,11 +255,16 @@ class MicroPython {
             }
 
             const obmpy = spawn(this._pyPath, arg);
+            this._sendstd(`writing ${file}\n`);
+
+            obmpy.stdout.on('data', buf => {
+                this._sendstd(buf.toString());
+            });
 
             obmpy.on('exit', outCode => {
                 switch (outCode) {
                 case 0:
-                    this._sendstd(`${file} write finish\n`);
+                    this._sendstd(`write finish\n`);
                     return resolve();
                 default:
                     return reject('obmpy failed to write');
@@ -295,8 +274,6 @@ class MicroPython {
     }
 
     async flashFirmware () {
-        this._sendRemoteRequest('setUploadAbortEnabled', false);
-
         if (this._config.chip === 'esp32' || this._config.chip === 'esp8266') {
             return await this.espflashFirmware();
         } else if (this._config.chip === 'k210') {
