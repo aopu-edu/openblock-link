@@ -49,16 +49,22 @@ class Arduino {
 
         // if arduino cli config haven be init, set it to link arduino path.
         const buf = spawnSync(this._arduinoCliPath, ['config', 'dump']);
-        const stdout = yaml.load(buf.stdout.toString());
+        try {
+            const stdout = yaml.load(buf.stdout.toString());
 
-        if (stdout.directories.data !== this._arduinoPath) {
-            this._sendstd(`${ansi.yellow_dark}arduino cli config has not been initialized yet.\n`);
-            this._sendstd(`${ansi.green_dark}set the path to ${this._arduinoPath}.\n`);
-            spawnSync(this._arduinoCliPath, ['config', 'set', 'directories.data', this._arduinoPath]);
-            spawnSync(this._arduinoCliPath, ['config', 'set', 'directories.downloads',
-                path.join(this._arduinoPath, 'staging')]);
-            spawnSync(this._arduinoCliPath, ['config', 'set', 'directories.user', this._arduinoPath]);
+            if (stdout.directories.data !== this._arduinoPath) {
+                this._sendstd(`${ansi.yellow_dark}arduino cli config has not been initialized yet.\n`);
+                this._sendstd(`${ansi.green_dark}set the path to ${this._arduinoPath}.\n`);
+                spawnSync(this._arduinoCliPath, ['config', 'set', 'directories.data', this._arduinoPath]);
+                spawnSync(this._arduinoCliPath, ['config', 'set', 'directories.downloads',
+                    path.join(this._arduinoPath, 'staging')]);
+                spawnSync(this._arduinoCliPath, ['config', 'set', 'directories.user', this._arduinoPath]);
+            }
+        } catch (err) {
+            this._sendstd(`${ansi.red}arduino cli init error`);
+            console.log(err);
         }
+ 
     }
 
     abortUpload () {
