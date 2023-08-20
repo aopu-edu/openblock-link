@@ -20,6 +20,7 @@ class Arduino {
         this._userDataPath = userDataPath;
         this._arduinoPath = path.join(toolsPath, 'Arduino');
         this._sendstd = sendstd;
+        this._firmwareDir = path.join(toolsPath, '../firmwares/arduino');
 
         this._abort = false;
 
@@ -31,7 +32,7 @@ class Arduino {
 
         const projectPathName = `${this._config.fqbn.replace(/:/g, '_')}_project`.split(/_/).splice(0, 3)
             .join('_');
-        this._projectfilePath = path.join(userDataPath, 'arduino', projectPathName);
+        this._projectfilePath = path.join(this._userDataPath, 'arduino', projectPathName);
 
         this._arduinoCliPath = path.join(this._arduinoPath, 'arduino-cli');
 
@@ -61,10 +62,9 @@ class Arduino {
                 spawnSync(this._arduinoCliPath, ['config', 'set', 'directories.user', this._arduinoPath]);
             }
         } catch (err) {
-            this._sendstd(`${ansi.red}arduino cli init error`);
-            console.log(err);
+            this._sendstd(`${ansi.red}arduino cli init error:`, err);
         }
- 
+
     }
 
     abortUpload () {
@@ -102,6 +102,7 @@ class Arduino {
             });
 
             const arduinoBuilder = spawn(this._arduinoCliPath, args);
+            this._sendstd(`Start building...\n`);
 
             arduinoBuilder.stderr.on('data', buf => {
                 const data = buf.toString();
@@ -128,7 +129,6 @@ class Arduino {
             const listenAbortSignal = setInterval(() => {
                 if (this._abort) {
                     arduinoBuilder.kill();
-                    return resolve('Aborted');
                 }
             }, ABORT_STATE_CHECK_INTERVAL);
 
@@ -138,7 +138,7 @@ class Arduino {
                 switch (outCode) {
                 case null:
                     // process be killed, do nothing.
-                    break;
+                    return resolve('Aborted');
                 case 0:
                     return resolve('Success');
                 case 1:
@@ -178,6 +178,7 @@ class Arduino {
             args.push('--input-file', firmwarePath, firmwarePath);
         } else {
             args.push('--input-dir', this._buildPath);
+            args.push(this._codeFolderPath);
         }
 
         return new Promise((resolve, reject) => {
@@ -209,14 +210,25 @@ class Arduino {
                 this._sendstd(data);
             });
 
+            const listenAbortSignal = setInterval(() => {
+                if (this._abort) {
+                    if (os.platform() === 'win32') {
+                        spawnSync('taskkill', ['/pid', avrdude.pid, '/f', '/t']);
+                    } else {
+                        avrdude.kill();
+                    }
+                }
+            }, ABORT_STATE_CHECK_INTERVAL);
+
             avrdude.on('exit', code => {
+                clearInterval(listenAbortSignal);
+                const wait = ms => new Promise(relv => setTimeout(relv, ms));
                 switch (code) {
                 case 0:
                     if (this._config.fqbn === 'arduino:avr:leonardo' ||
                         this._config.fqbn === 'SparkFun:avr:makeymakey' ||
                         this._config.fqbn.indexOf('rp2040:rp2040') !== -1) {
                         // Waiting for usb rerecognize.
-                        const wait = ms => new Promise(relv => setTimeout(relv, ms));
                         // Darwin and linux will take more time to rerecognize device.
                         if (os.platform() === 'darwin' || os.platform() === 'linux') {
                             wait(3000).then(() => resolve('Success'));
@@ -228,14 +240,19 @@ class Arduino {
                     }
                     break;
                 case 1:
-                    return reject(new Error('avrdude failed to flash'));
+                    if (this._abort) {
+                        // Wait for 100ms before returning to prevent the serial port from being released.
+                        wait(100).then(() => resolve('Aborted'));
+                    } else {
+                        return reject(new Error('avrdude failed to flash'));
+                    }
                 }
             });
         });
     }
 
     flashRealtimeFirmware () {
-        const firmwarePath = path.join(this._arduinoPath, '../../firmwares/arduino', this._config.firmware);
+        const firmwarePath = path.join(this._firmwareDir, this._config.firmware);
         return this.flash(firmwarePath);
     }
 }
